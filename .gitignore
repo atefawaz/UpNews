@@ -1,0 +1,18 @@
+# Secrets — never commit real credentials
+.env
+
+# Runtime state (per-machine, not part of the codebase)
+state.json
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Claude Code local settings
+.claude/
