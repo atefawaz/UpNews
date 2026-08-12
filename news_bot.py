@@ -7,15 +7,16 @@ WHAT THIS DOES
 Once a day, sends you ONE message split into two clearly separated
 sections:
 
-  🎯 DEPTH   — specialist analysis from think tanks / trade press
-               (ISW, Crisis Group, Foreign Policy, etc). Fewer, denser,
-               higher signal-to-noise. This is "what does it actually
-               mean" content.
+  🎯 DEPTH   — specialist analysis across four lenses: Military &
+               Security, Economy & Finance, Technology, and Science
+               (ISW, Crisis Group, Breaking Defense, MIT Tech Review,
+               ScienceDaily, etc). Fewer, denser, higher signal-to-
+               noise. This is "what does it actually mean" content.
 
-  🌍 BREADTH — top general headlines (Google News' own "what's leading
-               right now" ranking) across World, Business, and
-               Science/Tech. This is "what's happening everywhere"
-               content.
+  🌍 BREADTH — top headlines from THREE different editorial centers
+               of gravity (Google News/US, BBC/London, Al Jazeera/
+               Doha) instead of one algorithm's ranking, so you're
+               not seeing the world through a single region's lens.
 
 Both sides cover geopolitics/security, economy/energy, and tech/science
 — you asked for "all" of it, just organized so depth and breadth don't
@@ -52,35 +53,46 @@ import feedparser
 
 # ── CONFIG ────────────────────────────────────────────────────────────
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "PUT_YOUR_TOKEN_HERE")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "PUT_YOUR_CHAT_ID_HERE")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 MAX_DEPTH_ITEMS = 10   # denser, so keep this list tight
 MAX_BREADTH_ITEMS = 10  # per breadth category
 
-# ── DEPTH: specialist sources, direct feeds, grouped loosely by lens ──
+# ── DEPTH: specialist sources, direct feeds, one lens per category ────
 DEPTH_FEEDS = {
-    "Geopolitics & Security": [
-        "https://www.understandingwar.org/rss.xml",          # ISW
-        "https://www.longwarjournal.org/feed",                 # Long War Journal
-        "https://www.crisisgroup.org/rss.xml",                 # Crisis Group
-        "https://foreignpolicy.com/feed/",                      # Foreign Policy
+    "Military & Security": [
+        "https://www.understandingwar.org/rss.xml",           # ISW
+        "https://www.longwarjournal.org/feed",                  # Long War Journal
+        "https://www.crisisgroup.org/rss.xml",                  # Crisis Group
+        "https://breakingdefense.com/feed/",                     # Breaking Defense
+        "https://www.navalnews.com/feed/",                       # Naval News
     ],
-    "Economy & Energy": [
+    "Economy & Finance": [
         "https://www.cnbc.com/id/100727362/device/rss/rss.html",  # CNBC World
+        "https://foreignpolicy.com/feed/",                        # Foreign Policy (geoeconomics)
     ],
-    "Tech & Science": [
+    "Technology": [
         "https://www.technologyreview.com/feed/",               # MIT Tech Review
         "https://feeds.arstechnica.com/arstechnica/index",       # Ars Technica
+        "https://techcrunch.com/feed/",                          # TechCrunch
+    ],
+    "Science": [
+        "https://www.sciencedaily.com/rss/all.xml",              # ScienceDaily (broad science news)
     ],
 }
 
-# ── BREADTH: Google News' own top-headlines ranking, per category ─────
+# ── BREADTH: multiple editorial centers of gravity, not just one ──────
+# Google News alone (gl=US) quietly skews American even on "world" news.
+# Mixing in BBC (London) and Al Jazeera (Doha) gives genuinely different
+# vantage points on the same events.
 BREADTH_FEEDS = {
-    "World": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
-    "Business": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
-    "Science & Tech": "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en",
+    "World — Google News": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
+    "World — BBC": "http://feeds.bbci.co.uk/news/world/rss.xml",
+    "World — Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
+    "Business — Google News": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
+    "Science & Tech — Google News": "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en",
 }
 
 
@@ -167,7 +179,7 @@ def format_items(entries):
 # ── MAIN ────────────────────────────────────────────────────────────
 
 def run():
-    if "PUT_YOUR" in TELEGRAM_BOT_TOKEN or "PUT_YOUR" in TELEGRAM_CHAT_ID:
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[error] Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (env vars or in the script).")
         return
 
