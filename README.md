@@ -1,25 +1,21 @@
-# News Digest Bot
+# UpNews
 
-A personal Telegram bot that sends one daily digest of news, split into
-two clearly separated sections:
+A personal Telegram news system with three parts:
 
-- **🎯 Depth** — specialist analysis (ISW, Crisis Group, Long War
-  Journal, Foreign Policy, MIT Tech Review, Ars Technica, CNBC World)
-- **🌍 Breadth** — top general headlines (Google News' own "leading
-  right now" ranking) across World, Business, and Science & Tech
+- **`news_bot.py`** — sends one daily digest at 8am, split into:
+  - **🎯 Depth** — specialist analysis (ISW, Crisis Group, Long War Journal, Breaking Defense, Naval News, Foreign Policy, MIT Tech Review, Ars Technica, TechCrunch, ScienceDaily)
+  - **🌍 Breadth** — top headlines from six regions (North America, Europe, Middle East, Africa, Asia-Pacific, Latin America), so no region is invisible
+- **`search_news.py`** — on-demand topic search from the command line (e.g. `python3 search_news.py "Iran vs US"`)
+- **`telegram_listener.py`** — always-on bot: type any topic to the bot in Telegram, get recent articles back as a reply
 
-## Why
-
-Generic news aggregators optimize for popularity, not depth. This bot
-gives you both, clearly labeled, once a day, with no repeats (it tracks
-what it's already sent you in `state.json`).
+All three avoid re-sending the same story via `state.json`, and never crash the whole run if one feed is down.
 
 ## Setup
 
-1. **Clone this repo and install dependencies**
+1. **Install dependencies**
    ```bash
    git clone <your-repo-url>
-   cd news-digest-bot
+   cd UpNews
    pip install -r requirements.txt
    ```
 
@@ -34,42 +30,43 @@ what it's already sent you in `state.json`).
    - Find `"chat":{"id": ...}` in the response — that's your chat ID
 
 4. **Configure your secrets**
-   ```bash
-   cp .env.example .env
-   # then edit .env and fill in your real token and chat ID
+   Create a `.env` file (gitignored, never committed):
+   ```
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   TELEGRAM_CHAT_ID=your_chat_id_here
    ```
 
 5. **Run it once to test**
    ```bash
-   export $(cat .env | xargs)
+   set -a; source .env; set +a
    python3 news_bot.py
    ```
 
-## Running it daily
+## Running it in production
 
-**Option A — cron (if running on your own server)**
-```bash
-crontab -e
-# add this line to run every day at 7:30am:
-30 7 * * * cd /path/to/news-digest-bot && export $(cat .env | xargs) && /usr/bin/python3 news_bot.py >> bot.log 2>&1
-```
+This is deployed on a small always-on Ubuntu server (Hetzner):
 
-**Option B — GitHub Actions (no server needed)**
-This repo includes `.github/workflows/digest.yml`, which runs the bot
-automatically on GitHub's own servers every day. See that file's
-comments for setup — you just need to add your token/chat ID as
-GitHub repo secrets instead of a local `.env` file.
+- **Daily digest** — a cron job (in `crontab -e`) runs `news_bot.py` at 8am, `TZ=Asia/Beirut`:
+  ```
+  TZ=Asia/Beirut
+  0 8 * * * cd /opt/UpNews && /bin/bash -c "set -a; source .env; set +a; ./venv/bin/python3 news_bot.py" >> /var/log/upnews-digest.log 2>&1
+  ```
+- **On-demand search** — `telegram_listener.py` runs continuously as a systemd service (`upnews-search.service`), so you can message the bot any topic, anytime, and get a reply — no need to run anything manually.
+  ```
+  systemctl status upnews-search.service   # check it's running
+  journalctl -u upnews-search.service -f   # watch logs live
+  ```
 
 ## Project structure
 
 ```
-news-digest-bot/
-├── news_bot.py              # main script
-├── requirements.txt         # Python dependencies
-├── .env.example              # template for required secrets
-├── .gitignore                 # keeps secrets and local state out of git
-└── .github/workflows/
-    └── digest.yml             # optional: run daily via GitHub Actions
+UpNews/
+├── news_bot.py           # daily digest: fetch → dedupe → format → send
+├── search_news.py        # CLI: search a topic on demand, optional --telegram flag
+├── telegram_listener.py  # always-on: replies to any message with a search on that topic
+├── requirements.txt      # Python dependencies
+├── .gitignore             # keeps secrets and local state out of git
+└── state.json              # local, gitignored — tracks what's already been sent
 ```
 
 ## Customizing sources
@@ -84,6 +81,5 @@ confirm it still resolves.
 - Feed URLs for specialist sources (ISW, Crisis Group, etc.) were
   sourced from research, not fetched and verified live — check them
   once in a browser before relying on this daily.
-- Economy/Energy depth coverage is currently thin (just CNBC World) —
-  a good first contribution if you want to extend this yourself.
-# UpNews
+- `telegram_listener.py` only responds to messages from the chat ID in
+  `.env` — messages from anyone else who finds the bot are ignored.
