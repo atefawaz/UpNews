@@ -10,17 +10,18 @@ sections:
   🎯 DEPTH   — specialist analysis across four lenses: Military &
                Security, Economy & Finance, Technology, and Science
                (ISW, Crisis Group, Breaking Defense, MIT Tech Review,
-               ScienceDaily, etc). Fewer, denser, higher signal-to-
-               noise. This is "what does it actually mean" content.
+               ScienceDaily, etc). Top 3 per lens — light touch, not
+               a flood.
 
-  🌍 BREADTH — top headlines from THREE different editorial centers
-               of gravity (Google News/US, BBC/London, Al Jazeera/
-               Doha) instead of one algorithm's ranking, so you're
-               not seeing the world through a single region's lens.
+  🌍 BREADTH — top headlines from SIX continents/regions (North
+               America, Europe, Middle East, Africa, Asia-Pacific,
+               Latin America), top 3 each, so no region is invisible
+               and no single outlet's ranking dominates.
 
-Both sides cover geopolitics/security, economy/energy, and tech/science
-— you asked for "all" of it, just organized so depth and breadth don't
-blur together.
+Both sides are capped deliberately light — enough to stay genuinely
+aware across every topic and every continent, without any one section
+burying the rest. That's the actual point: breadth AND depth, together,
+in something you'll actually read every day.
 
 SETUP (one-time)
 -----------------
@@ -57,8 +58,11 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
-MAX_DEPTH_ITEMS = 10   # denser, so keep this list tight
-MAX_BREADTH_ITEMS = 10  # per breadth category
+
+# Light touch, uniformly, across every lens/continent — enough to stay
+# genuinely aware of each topic without any one section burying the rest.
+DEPTH_ITEM_CAP = 3
+BREADTH_ITEM_CAP = 3
 
 # ── DEPTH: specialist sources, direct feeds, one lens per category ────
 DEPTH_FEEDS = {
@@ -83,16 +87,19 @@ DEPTH_FEEDS = {
     ],
 }
 
-# ── BREADTH: multiple editorial centers of gravity, not just one ──────
-# Google News alone (gl=US) quietly skews American even on "world" news.
-# Mixing in BBC (London) and Al Jazeera (Doha) gives genuinely different
-# vantage points on the same events.
+# ── BREADTH: top headlines by CONTINENT, so no region is invisible ────
+# Google News publishes localized top-headline editions per country —
+# using those (in English) gives genuinely different regional news
+# agendas, not just one US-based algorithm relabeled as "world news."
+# BBC and Al Jazeera are added as two more independent editorial voices
+# (London and Doha) since they cover cross-regional stories well.
 BREADTH_FEEDS = {
-    "World — Google News": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
-    "World — BBC": "http://feeds.bbci.co.uk/news/world/rss.xml",
-    "World — Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
-    "Business — Google News": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
-    "Science & Tech — Google News": "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en",
+    "North America": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+    "Europe": "http://feeds.bbci.co.uk/news/world/rss.xml",
+    "Middle East": "https://www.aljazeera.com/xml/rss/all.xml",
+    "Africa": "https://news.google.com/rss?hl=en-ZA&gl=ZA&ceid=ZA:en",
+    "Asia-Pacific": "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en",
+    "Latin America": "https://news.google.com/rss?hl=en-MX&gl=MX&ceid=MX:en",
 }
 
 
@@ -176,6 +183,24 @@ def format_items(entries):
     return lines
 
 
+def send_chunked(message_parts):
+    """Join message_parts with newlines and send, splitting into multiple
+    Telegram messages if needed (Telegram caps messages at 4096 chars)."""
+    full_text = "\n".join(message_parts)
+    if len(full_text) <= 4000:
+        send_telegram_message(full_text)
+        return
+    chunk = ""
+    for line in message_parts:
+        if len(chunk) + len(line) + 1 > 4000:
+            send_telegram_message(chunk)
+            chunk = ""
+            time.sleep(1)
+        chunk += line + "\n"
+    if chunk:
+        send_telegram_message(chunk)
+
+
 # ── MAIN ────────────────────────────────────────────────────────────
 
 def run():
@@ -197,7 +222,7 @@ def run():
         entries = []
         for url in feeds:
             entries.extend(fetch_feed_entries(url, 8))
-        section = build_section(entries, seen_ids, new_seen_ids, MAX_DEPTH_ITEMS)
+        section = build_section(entries, seen_ids, new_seen_ids, DEPTH_ITEM_CAP)
         if section:
             depth_had_content = True
             message_parts.append(f"\n<b>{lens}</b>")
@@ -210,7 +235,7 @@ def run():
     breadth_had_content = False
     for category, url in BREADTH_FEEDS.items():
         entries = fetch_feed_entries(url, 15)
-        section = build_section(entries, seen_ids, new_seen_ids, MAX_BREADTH_ITEMS)
+        section = build_section(entries, seen_ids, new_seen_ids, BREADTH_ITEM_CAP)
         if section:
             breadth_had_content = True
             message_parts.append(f"\n<b>{category}</b>")
@@ -218,21 +243,7 @@ def run():
     if not breadth_had_content:
         message_parts.append("<i>No new headlines today.</i>")
 
-    full_text = "\n".join(message_parts)
-
-    # Telegram caps messages at 4096 chars — split into chunks if needed
-    if len(full_text) <= 4000:
-        send_telegram_message(full_text)
-    else:
-        chunk = ""
-        for line in message_parts:
-            if len(chunk) + len(line) + 1 > 4000:
-                send_telegram_message(chunk)
-                chunk = ""
-                time.sleep(1)
-            chunk += line + "\n"
-        if chunk:
-            send_telegram_message(chunk)
+    send_chunked(message_parts)
 
     state["seen"] = list(new_seen_ids)
     save_state(state)
