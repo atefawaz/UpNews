@@ -4,9 +4,9 @@ A personal Telegram news system with three parts:
 
 - **`news_bot.py`** — sends one daily digest at 8am, split into:
   - **🎯 Depth** — specialist analysis (ISW, Crisis Group, Long War Journal, Breaking Defense, Naval News, Foreign Policy, MIT Tech Review, Ars Technica, TechCrunch, ScienceDaily)
-  - **🌍 Breadth** — top headlines from six regions (North America, Europe, Middle East, Africa, Asia-Pacific, Latin America), so no region is invisible
-- **`search_news.py`** — on-demand topic search from the command line (e.g. `python3 search_news.py "Iran vs US"`)
-- **`telegram_listener.py`** — always-on bot: type any topic to the bot in Telegram, get recent articles back as a reply
+  - **🌍 Breadth** — top headlines from six regions, each a direct outlet feed so every item carries a real one-line summary, not just a link: North America (NPR), Europe (BBC), Middle East (Al Jazeera), Africa (BBC Africa), Asia-Pacific (Channel News Asia), Latin America (MercoPress)
+- **`search_news.py`** — on-demand topic search from the command line (e.g. `python3 search_news.py "Iran vs US"`). Uses Google News' search RSS (the only free way to search arbitrary topics across the web), so results are headline + link only — Google News doesn't expose real per-article summaries or directly-fetchable article pages.
+- **`telegram_listener.py`** — always-on bot: type any topic to the bot in Telegram, get recent articles back as a reply (same headline-only results as `search_news.py`, since it reuses the same search)
 
 All three avoid re-sending the same story via `state.json`, and never crash the whole run if one feed is down.
 
@@ -75,6 +75,13 @@ Edit the `DEPTH_FEEDS` and `BREADTH_FEEDS` dictionaries at the top of
 `news_bot.py`. Each is just a list of RSS feed URLs — add or remove
 freely. If a feed stops returning items, open its URL in a browser to
 confirm it still resolves.
+
+Prefer direct outlet feeds over Google News RSS when possible: Google
+News stuffs its `<summary>` field with a list of links to other
+outlets rather than real article text, and its article links only
+resolve through an obfuscated consent/redirect wall — so entries from
+it never get a one-line summary (see `clean_summary()` in
+`news_bot.py`), just a headline and link.
 
 ## Notes / known limitations
 

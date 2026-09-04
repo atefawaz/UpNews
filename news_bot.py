@@ -45,12 +45,16 @@ still resolves, then update it here.
 """
 
 import os
+import re
 import json
 import time
+import html
 import hashlib
 from datetime import datetime, timezone
 import requests
 import feedparser
+
+SUMMARY_MAX_LEN = 180
 
 # ── CONFIG ────────────────────────────────────────────────────────────
 
@@ -88,18 +92,17 @@ DEPTH_FEEDS = {
 }
 
 # ── BREADTH: top headlines by CONTINENT, so no region is invisible ────
-# Google News publishes localized top-headline editions per country —
-# using those (in English) gives genuinely different regional news
-# agendas, not just one US-based algorithm relabeled as "world news."
-# BBC and Al Jazeera are added as two more independent editorial voices
-# (London and Doha) since they cover cross-regional stories well.
+# Each region uses a direct outlet feed (not Google News) so entries carry
+# a real article summary and a real, directly-fetchable link — Google
+# News RSS links only resolve through an obfuscated consent/redirect
+# wall, so they can never carry a usable one-line summary.
 BREADTH_FEEDS = {
-    "North America": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
-    "Europe": "http://feeds.bbci.co.uk/news/world/rss.xml",
-    "Middle East": "https://www.aljazeera.com/xml/rss/all.xml",
-    "Africa": "https://news.google.com/rss?hl=en-ZA&gl=ZA&ceid=ZA:en",
-    "Asia-Pacific": "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en",
-    "Latin America": "https://news.google.com/rss?hl=en-MX&gl=MX&ceid=MX:en",
+    "North America": "https://feeds.npr.org/1001/rss.xml",              # NPR
+    "Europe": "http://feeds.bbci.co.uk/news/world/rss.xml",              # BBC
+    "Middle East": "https://www.aljazeera.com/xml/rss/all.xml",          # Al Jazeera
+    "Africa": "http://feeds.bbci.co.uk/news/world/africa/rss.xml",       # BBC Africa
+    "Asia-Pacific": "https://www.channelnewsasia.com/rssfeeds/8395884",  # CNA Asia
+    "Latin America": "https://en.mercopress.com/rss/",                   # MercoPress
 }
 
 
@@ -171,6 +174,21 @@ def send_telegram_message(text):
         print(f"[warn] Telegram send failed: {resp.status_code} {resp.text[:200]}")
 
 
+def clean_summary(entry):
+    """Return a short plain-text summary from the feed's own RSS description,
+    or "" if there isn't a usable one. Google News feeds stuff their
+    <summary> with a bare HTML list of links to related articles rather
+    than actual article text, so those are detected and skipped."""
+    raw = entry.get("summary", "")
+    if not raw or "<a " in raw:
+        return ""
+    text = html.unescape(re.sub(r"<[^>]+>", "", raw))
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > SUMMARY_MAX_LEN:
+        text = text[:SUMMARY_MAX_LEN].rsplit(" ", 1)[0] + "…"
+    return text
+
+
 def format_items(entries):
     lines = []
     for e in entries:
@@ -180,6 +198,9 @@ def format_items(entries):
         if hasattr(e, "source") and getattr(e.source, "title", None):
             source = f" ({e.source.title})"
         lines.append(f"• <a href=\"{link}\">{title}</a>{source}")
+        summary = clean_summary(e)
+        if summary:
+            lines.append(f"  <i>{summary}</i>")
     return lines
 
 

@@ -18,6 +18,7 @@ from news_bot import (
     fetch_feed_entries,
     dedupe_by_title,
     format_items,
+    clean_summary,
     send_chunked,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
@@ -44,6 +45,9 @@ def print_results(topic, results):
         print(f"- {title}")
         if source_name or published:
             print(f"  {source_name}{' — ' if source_name and published else ''}{published}")
+        summary = clean_summary(e)
+        if summary:
+            print(f"  {summary}")
         print(f"  {link}\n")
 
 
