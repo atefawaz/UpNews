@@ -21,10 +21,11 @@ so if anyone else ever finds your bot's username, their messages are
 silently ignored.
 """
 
+import html
 import time
 import requests
 
-from news_bot import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, format_items, send_chunked
+from news_bot import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, format_items, topic_recap, send_chunked
 from search_news import search
 
 API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
@@ -49,8 +50,11 @@ def handle_topic(topic):
         send_chunked([HELP_TEXT])
         return
     results = search(topic, limit=15)
+    bullets = topic_recap(topic, results)
     message_parts = [f"<b>🔎 {topic}</b>"]
-    if results:
+    if bullets:
+        message_parts.extend(f"▸ {html.escape(b)}" for b in bullets)
+    elif results:
         message_parts.extend(format_items(results))
     else:
         message_parts.append("<i>No articles found.</i>")
