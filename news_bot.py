@@ -53,8 +53,20 @@ import hashlib
 from datetime import datetime, timezone
 import requests
 import feedparser
+from bs4 import BeautifulSoup
 
 SUMMARY_MAX_LEN = 180
+
+# ── LOCAL LLM (Ollama) BULLET SUMMARIES ────────────────────────────────
+# Only used for the daily digest, whose feeds all have real, directly
+# fetchable article links. Falls back to clean_summary() above if
+# Ollama isn't running, the article can't be fetched, or anything times
+# out — this must never be able to break the digest.
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+ARTICLE_FETCH_TIMEOUT = 10
+OLLAMA_TIMEOUT = 30
+ARTICLE_TEXT_MAX_LEN = 4000
 
 # ── CONFIG ────────────────────────────────────────────────────────────
 
@@ -189,7 +201,90 @@ def clean_summary(entry):
     return text
 
 
-def format_items(entries):
+def fetch_article_text(url):
+    """Best-effort fetch of an article's main readable text. Returns ""
+    on any failure (network error, no article-shaped content, etc.) —
+    callers must treat that as "no bullets available", not an error."""
+    try:
+        resp = requests.get(url, timeout=ARTICLE_FETCH_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.content, "html.parser")
+        paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
+        text = " ".join(p for p in paragraphs if len(p) > 40)
+        return text[:ARTICLE_TEXT_MAX_LEN]
+    except Exception:
+        return ""
+
+
+def _ollama_bullets(prompt, max_bullets):
+    """Send a prompt to the local Ollama model and pull out its bulleted
+    lines. Returns [] on any failure (Ollama not running, timeout, no
+    bullet-shaped lines in the response, etc.)."""
+    try:
+        resp = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=OLLAMA_TIMEOUT,
+        )
+        resp.raise_for_status()
+        text = resp.json().get("response", "")
+    except Exception:
+        return []
+    bullets = [
+        line.strip().lstrip("-•").strip()
+        for line in text.splitlines()
+        if line.strip().startswith(("-", "•"))
+    ]
+    return bullets[:max_bullets]
+
+
+def bullet_summary(title, article_text):
+    """Ask the local Ollama model for 2-3 punchy factual bullet points on
+    the article. Returns [] if Ollama isn't reachable, times out, or the
+    article text is empty — callers should fall back to clean_summary()."""
+    if not article_text:
+        return []
+    prompt = (
+        f"Article title: {title}\n\nArticle text:\n{article_text}\n\n"
+        "Summarize the key facts in exactly 2-3 short, punchy bullet points "
+        "(max ~20 words each, no filler words). "
+        "Each bullet on its own line starting with \"- \". "
+        "Only use facts from the article text above, no outside knowledge, no commentary."
+    )
+    return _ollama_bullets(prompt, max_bullets=3)
+
+
+def topic_recap(topic, entries):
+    """Synthesize a short recap of what's currently going on with a topic
+    from a list of search-result feed entries. Search results come from
+    Google News, whose article pages can't be fetched (see README), so
+    this works from headlines + source names only, not full article
+    text — still enough signal to merge overlapping coverage into a
+    real recap instead of a raw list of near-duplicate headlines.
+    Returns [] if there's nothing to summarize or Ollama is unavailable
+    — callers should fall back to listing the raw entries."""
+    lines = []
+    for e in entries:
+        title = (e.get("title") or "").strip()
+        source = getattr(getattr(e, "source", None), "title", "") or ""
+        if title:
+            lines.append(f"- {title}" + (f" ({source})" if source else ""))
+    if not lines:
+        return []
+    prompt = (
+        f"Topic: {topic}\n\n"
+        f"Recent headlines about this topic, from different outlets:\n{chr(10).join(lines)}\n\n"
+        "Write a concise recap of what's currently going on, in 4-6 short, "
+        "punchy bullet points (max ~20 words each). Merge overlapping "
+        "headlines into single facts, don't repeat the same point twice, "
+        "and only use information present in the headlines above — don't "
+        "invent facts or add outside knowledge. Each bullet on its own "
+        "line starting with \"- \"."
+    )
+    return _ollama_bullets(prompt, max_bullets=6)
+
+
+def format_items(entries, use_llm=False):
     lines = []
     for e in entries:
         title = e.get("title", "Untitled")
@@ -198,9 +293,15 @@ def format_items(entries):
         if hasattr(e, "source") and getattr(e.source, "title", None):
             source = f" ({e.source.title})"
         lines.append(f"• <a href=\"{link}\">{title}</a>{source}")
-        summary = clean_summary(e)
-        if summary:
-            lines.append(f"  <i>{summary}</i>")
+
+        bullets = bullet_summary(title, fetch_article_text(link)) if (use_llm and link) else []
+        if bullets:
+            for b in bullets:
+                lines.append(f"  ▸ {html.escape(b)}")
+        else:
+            summary = clean_summary(e)
+            if summary:
+                lines.append(f"  <i>{summary}</i>")
     return lines
 
 
@@ -247,7 +348,7 @@ def run():
         if section:
             depth_had_content = True
             message_parts.append(f"\n<b>{lens}</b>")
-            message_parts.extend(format_items(section))
+            message_parts.extend(format_items(section, use_llm=True))
     if not depth_had_content:
         message_parts.append("<i>No new specialist items today.</i>")
 
@@ -260,7 +361,7 @@ def run():
         if section:
             breadth_had_content = True
             message_parts.append(f"\n<b>{category}</b>")
-            message_parts.extend(format_items(section))
+            message_parts.extend(format_items(section, use_llm=True))
     if not breadth_had_content:
         message_parts.append("<i>No new headlines today.</i>")
 
