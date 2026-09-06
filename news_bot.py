@@ -65,7 +65,14 @@ SUMMARY_MAX_LEN = 180
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 ARTICLE_FETCH_TIMEOUT = 10
-OLLAMA_TIMEOUT = 30
+# Generous enough to cover a cold start: Ollama unloads an idle model from
+# memory after a few minutes, so the first request after any idle period
+# has to reload the whole model before it can even start generating.
+OLLAMA_TIMEOUT = 90
+# Keep the model resident between requests so on-demand search (unlike the
+# digest's back-to-back calls) doesn't hit a slow cold-start reload nearly
+# every time it's used.
+OLLAMA_KEEP_ALIVE = "30m"
 ARTICLE_TEXT_MAX_LEN = 4000
 
 # ── CONFIG ────────────────────────────────────────────────────────────
@@ -223,7 +230,12 @@ def _ollama_bullets(prompt, max_bullets):
     try:
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": OLLAMA_KEEP_ALIVE,
+            },
             timeout=OLLAMA_TIMEOUT,
         )
         resp.raise_for_status()
